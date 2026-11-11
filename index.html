@@ -84,10 +84,16 @@
           <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Tagebuch</p>
         </div>
       </div>
-      <!-- Theme Toggle -->
-      <button id="theme-toggle" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center btn-press">
-        <i id="theme-icon" class="fa-solid fa-moon text-sm"></i>
-      </button>
+      <!-- Actions Right -->
+      <div class="flex items-center gap-2">
+        <button onclick="exportToICS()" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center btn-press" title="Als Kalender-Datei exportieren">
+          <i class="fa-solid fa-calendar-arrow-down text-sm"></i>
+        </button>
+        <!-- Theme Toggle -->
+        <button id="theme-toggle" class="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center btn-press">
+          <i id="theme-icon" class="fa-solid fa-moon text-sm"></i>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -620,6 +626,7 @@
     function saveAndFinish() {
       currentEntry.note_own = document.getElementById('note-own').value;
       currentEntry.note_health = document.getElementById('note-health').value;
+      currentEntry.exported = false; // Wird für neuen Export markiert
 
       appData[editingDateStr] = { ...currentEntry };
       saveStorage();
@@ -761,6 +768,83 @@
       setTimeout(() => {
         startEntry(dStr);
       }, 300);
+    }
+
+    // --- ICS EXPORT ---
+    function exportToICS() {
+      const entriesToExport = Object.keys(appData).filter(date => !appData[date].exported);
+      
+      if (entriesToExport.length === 0) {
+        showToast("Keine neuen Einträge vorhanden!");
+        return;
+      }
+
+      let icsContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Familiengeschichten//Tagebuch//DE\r\n";
+
+      entriesToExport.forEach(dateStr => {
+        const entry = appData[dateStr];
+        const dateObj = new Date(dateStr);
+        
+        // Formatiere DTSTART (aktueller Tag)
+        const dtStart = dateObj.getFullYear() + String(dateObj.getMonth() + 1).padStart(2, '0') + String(dateObj.getDate()).padStart(2, '0');
+        
+        // Formatiere DTEND (nächster Tag, für ganztägige Ereignisse)
+        const nextDayObj = new Date(dateObj);
+        nextDayObj.setDate(nextDayObj.getDate() + 1);
+        const dtEnd = nextDayObj.getFullYear() + String(nextDayObj.getMonth() + 1).padStart(2, '0') + String(nextDayObj.getDate()).padStart(2, '0');
+
+        // Hilfsfunktionen für Emojis/Texte
+        const getMoodL = (id) => MOODS.find(x => x.id === id)?.label || '-';
+        const getMoodE = (id) => MOODS.find(x => x.id === id)?.emoji || '';
+        const getH = (id) => HEALTH_STATES.find(x => x.id === entry[`health_${id}`])?.label || '-';
+
+        // Baue Beschreibung (mit escaped \n für ICS)
+        let desc = `Tagesbericht vom ${dateObj.toLocaleDateString('de-DE')}\\n\\n`;
+        desc += `Stimmungen:\\n`;
+        desc += `- Ich: ${getMoodE(entry.mood_own)} ${getMoodL(entry.mood_own)}\\n`;
+        desc += `- Bela: ${getMoodE(entry.mood_bela)} ${getMoodL(entry.mood_bela)}\\n`;
+        desc += `- Sissi: ${getMoodE(entry.mood_sissi)} ${getMoodL(entry.mood_sissi)}\\n`;
+        desc += `- Lola: ${getMoodE(entry.mood_lola)} ${getMoodL(entry.mood_lola)}\\n\\n`;
+        
+        if (entry.note_own) {
+          desc += `Tagesnotiz:\\n${entry.note_own.replace(/\n/g, '\\n')}\\n\\n`;
+        }
+
+        desc += `Gesundheit:\\n`;
+        desc += `- Papa: ${getH('papa')}\\n`;
+        desc += `- Mama: ${getH('mama')}\\n`;
+        desc += `- Bela: ${getH('bela')}\\n`;
+        desc += `- Lola: ${getH('lola')}\\n`;
+        
+        if (entry.note_health) {
+          desc += `\\nGesundheits-Notiz:\\n${entry.note_health.replace(/\n/g, '\\n')}`;
+        }
+
+        icsContent += "BEGIN:VEVENT\r\n";
+        icsContent += `DTSTART;VALUE=DATE:${dtStart}\r\n`;
+        icsContent += `DTEND;VALUE=DATE:${dtEnd}\r\n`;
+        icsContent += `SUMMARY:Tagebuch ${getMoodE(entry.mood_own)}\r\n`;
+        icsContent += `DESCRIPTION:${desc}\r\n`;
+        icsContent += "END:VEVENT\r\n";
+
+        // Markiere als exportiert
+        appData[dateStr].exported = true; 
+      });
+
+      icsContent += "END:VCALENDAR";
+
+      // Download auslösen
+      const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `Tagebuch_Export_${formatDateStr(new Date())}.ics`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Status speichern
+      saveStorage();
+      showToast(`${entriesToExport.length} Eintrag/Einträge exportiert!`);
     }
   </script>
 </body>
